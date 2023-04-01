@@ -161,9 +161,7 @@ class LinearActivation(Module):
             return self.act_fn(F.linear(inp, self.weight, self.bias))
 
     def extra_repr(self):
-        return "in_features={}, out_features={}, bias={}".format(
-            self.in_features, self.out_features, self.bias is not None
-        )
+        return f"in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}"
 
 
 class RegularLinearActivation(Module):
@@ -195,7 +193,9 @@ def get_apex_layer_norm():
         return torch.nn.LayerNorm
         # ----Use Torch Apex----
     except ImportError:
-        raise Exception(f"Layer norm of type apex is not available, apex not installed.")
+        raise Exception(
+            "Layer norm of type apex is not available, apex not installed."
+        )
 
 
 class RMSNorm(torch.nn.Module):
@@ -494,7 +494,7 @@ class BertEncoder(nn.Module):
                 local_rank=args.local_rank if hasattr(args, "local_rank") else -1,
                 seed=args.seed,
                 fp16=ds_config.fp16_enabled,
-                pre_layer_norm=True if "pre-ln" in config.encoder_ln_mode else False,
+                pre_layer_norm="pre-ln" in config.encoder_ln_mode,
                 normalize_invertible=args.normalize_invertible,
                 gelu_checkpoint=args.gelu_checkpoint,
                 adjust_init_range=True,
@@ -595,8 +595,7 @@ class BertPooler(nn.Module):
         # We "pool" the model by simply taking the hidden state corresponding
         # to the first token.
         first_token_tensor = hidden_states[:, 0]
-        pooled_output = self.dense_act(first_token_tensor)
-        return pooled_output
+        return self.dense_act(first_token_tensor)
 
 
 class BertPredictionHeadTransform(nn.Module):
@@ -633,11 +632,10 @@ class BertLMPredictionHead(nn.Module):
             self.decoder.bias = self.bias
 
     def forward(self, hidden_states, masked_token_indexes):
-        if self.sparse_predict:
-            if masked_token_indexes is not None:
-                hidden_states = hidden_states.view(-1, hidden_states.shape[-1])[
-                    masked_token_indexes
-                ]
+        if self.sparse_predict and masked_token_indexes is not None:
+            hidden_states = hidden_states.view(-1, hidden_states.shape[-1])[
+                masked_token_indexes
+            ]
         hidden_states = self.transform(hidden_states)
         hidden_states = self.decoder(hidden_states)
         if not self.sparse_predict:
@@ -653,8 +651,7 @@ class BertOnlyMLMHead(nn.Module):
         self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
 
     def forward(self, sequence_output, masked_token_indexes=None):
-        prediction_scores = self.predictions(sequence_output, masked_token_indexes)
-        return prediction_scores
+        return self.predictions(sequence_output, masked_token_indexes)
 
 
 class BertOnlyNSPHead(nn.Module):
@@ -663,8 +660,7 @@ class BertOnlyNSPHead(nn.Module):
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, pooled_output):
-        seq_relationship_score = self.seq_relationship(pooled_output)
-        return seq_relationship_score
+        return self.seq_relationship(pooled_output)
 
 
 class BertPreTrainingHeads(nn.Module):
@@ -912,8 +908,7 @@ class BertForPreTraining(BertPreTrainedModel):
             next_sentence_loss = loss_fct(
                 seq_relationship_score.view(-1, 2), next_sentence_label.view(-1)
             )
-            total_loss = masked_lm_loss + next_sentence_loss
-            return total_loss
+            return masked_lm_loss + next_sentence_loss
         else:
             prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
             return prediction_scores, seq_relationship_score
@@ -985,25 +980,22 @@ class BertLMHeadModel(BertPreTrainedModel):
         sequence_output = bert_output[0]
 
         if masked_lm_labels is None:
-            prediction_scores = self.cls(sequence_output)
-            return prediction_scores
-
+            return self.cls(sequence_output)
         masked_token_indexes = torch.nonzero((masked_lm_labels + 1).view(-1), as_tuple=False).view(
             -1
         )
         prediction_scores = self.cls(sequence_output, masked_token_indexes)
 
-        if masked_lm_labels is not None:
-            loss_fct = CrossEntropyLoss(ignore_index=-1)
-            target = torch.index_select(masked_lm_labels.view(-1), 0, masked_token_indexes)
-            masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), target)
-
-            outputs = (masked_lm_loss,)
-            if output_attentions:
-                outputs += (bert_output[-1],)
-            return outputs
-        else:
+        if masked_lm_labels is None:
             return prediction_scores
+        loss_fct = CrossEntropyLoss(ignore_index=-1)
+        target = torch.index_select(masked_lm_labels.view(-1), 0, masked_token_indexes)
+        masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), target)
+
+        outputs = (masked_lm_loss,)
+        if output_attentions:
+            outputs += (bert_output[-1],)
+        return outputs
 
 
 class BertForNextSentencePrediction(BertPreTrainedModel):
@@ -1069,14 +1061,12 @@ class BertForNextSentencePrediction(BertPreTrainedModel):
         )
         seq_relationship_score = self.cls(pooled_output)
 
-        if next_sentence_label is not None:
-            loss_fct = CrossEntropyLoss(ignore_index=-1)
-            next_sentence_loss = loss_fct(
-                seq_relationship_score.view(-1, 2), next_sentence_label.view(-1)
-            )
-            return next_sentence_loss
-        else:
+        if next_sentence_label is None:
             return seq_relationship_score
+        loss_fct = CrossEntropyLoss(ignore_index=-1)
+        return loss_fct(
+            seq_relationship_score.view(-1, 2), next_sentence_label.view(-1)
+        )
 
 
 class BertForSequenceClassification(BertPreTrainedModel):

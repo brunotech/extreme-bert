@@ -28,12 +28,11 @@ logger = logging.getLogger()
 
 def list_files_in_dir(dir, data_prefix=".txt"):
     '''list files in directory'''
-    dataset_files = [
+    return [
         os.path.join(dir, f)
         for f in os.listdir(dir)
         if os.path.isfile(os.path.join(dir, f)) and data_prefix in f
     ]
-    return dataset_files
 
 
 if __name__ == "__main__":
@@ -110,7 +109,7 @@ if __name__ == "__main__":
 
         # This could be better optimized (fine if all take equal time)
         if shard_idx % args.n_processes == 0 and shard_idx > 0:
-            bert_preprocessing_process.wait()
+            last_process.wait()
             pbar.update(args.n_processes)
         return last_process
 

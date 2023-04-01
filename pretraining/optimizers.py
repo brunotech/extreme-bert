@@ -78,7 +78,7 @@ def get_sgd(args, lr, params):
     conf.read(args.optimizer_conf_file)
     momentum = conf.getfloat("hyperparams", "momentum")
     nesterov_str = conf.get("hyperparams", "nesterov")
-    nesterov = False if nesterov_str in ["no", "false", "No", "False"] else True
+    nesterov = nesterov_str not in ["no", "false", "No", "False"]
     logging.info('customized optimizer: momentum = %.6lf', momentum)
     logging.info('customized optimizer: nesterov = %s', str(nesterov))
 
@@ -122,10 +122,7 @@ class DummyOptimizer(Optimizer):
         Arguments:
             closure (:obj:`Callable`, `optional`): A closure that reevaluates the model and returns the loss.
         """
-        loss = None
-        if closure is not None:
-            loss = closure()
-        return loss
+        return closure() if closure is not None else None
 
 def get_dummy(args, lr, params):
     return DummyOptimizer(params, lr=lr)
@@ -142,12 +139,10 @@ def get_customized(args, lr, params):
         "adam": get_adam,
         "adamw": get_adamw,
     }
-    if not optimizer_type in optimizer_map:
-        raise ValueError('unsupported optimizer "%s"' % optimizer_type)
+    if optimizer_type not in optimizer_map:
+        raise ValueError(f'unsupported optimizer "{optimizer_type}"')
 
-    optimizer = optimizer_map[optimizer_type](args, lr, params)
-
-    return optimizer
+    return optimizer_map[optimizer_type](args, lr, params)
 
 
 OPTIMIZERS = {

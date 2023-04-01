@@ -178,7 +178,7 @@ def create_finetune_job(args, pretrain_run_args, tokenizer, model):
             "pretraining_experiment-",
             "epoch1000000_step"
         )
-        logger.info("checkpointing: PATH={}".format(save_model_path))
+        logger.info(f"checkpointing: PATH={save_model_path}")
         os.makedirs(save_model_path, exist_ok=True)
 
         # Don't use model.save..., since downstream tasks may reuse the linear
@@ -236,8 +236,10 @@ def main():
 
     # Log on each process the small summary:
     logger.warning(
-        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
-        + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
+        (
+            f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
+            + f"distributed training: {training_args.local_rank != -1}, 16-bits training: {training_args.fp16}"
+        )
     )
     # Set the verbosity to info of the Transformers logger (on main process only):
     if is_main_process(training_args.local_rank):
@@ -329,27 +331,25 @@ def main():
 
     if os.path.isdir(model_args.model_name_or_path):
         config = PretrainedBertConfig.from_pretrained(
-            model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+            model_args.config_name or model_args.model_name_or_path,
             num_labels=num_labels,
             finetuning_task=data_args.task_name,
             cache_dir=model_args.cache_dir,
         )
         tokenizer = AutoTokenizer.from_pretrained(
-            model_args.tokenizer_name
-            if model_args.tokenizer_name
-            else model_args.model_name_or_path,
+            model_args.tokenizer_name or model_args.model_name_or_path,
             cache_dir=model_args.cache_dir,
         )
         model = BertForSequenceClassification.from_pretrained(
             model_args.model_name_or_path,
-            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            from_tf=".ckpt" in model_args.model_name_or_path,
             config=config,
             cache_dir=model_args.cache_dir,
             args=ds_args,
         )
     else:
         config = AutoConfig.from_pretrained(
-            model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+            model_args.config_name or model_args.model_name_or_path,
             num_labels=num_labels,
             finetuning_task=data_args.task_name,
             cache_dir=model_args.cache_dir,
@@ -357,9 +357,7 @@ def main():
             use_auth_token=True if model_args.use_auth_token else None,
         )
         tokenizer = AutoTokenizer.from_pretrained(
-            model_args.tokenizer_name
-            if model_args.tokenizer_name
-            else model_args.model_name_or_path,
+            model_args.tokenizer_name or model_args.model_name_or_path,
             cache_dir=model_args.cache_dir,
             use_fast=model_args.use_fast_tokenizer,
             revision=model_args.model_revision,
@@ -367,7 +365,7 @@ def main():
         )
         model = AutoModelForSequenceClassification.from_pretrained(
             model_args.model_name_or_path,
-            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            from_tf=".ckpt" in model_args.model_name_or_path,
             config=config,
             cache_dir=model_args.cache_dir,
             revision=model_args.model_revision,
@@ -548,7 +546,7 @@ def main():
             wandb.run.summary.update(metrics)
             log_metrics = {}
             for k, v in metrics.items():
-                log_metrics["final_" + k] = v
+                log_metrics[f"final_{k}"] = v
             wandb.log(log_metrics)
         except Exception as e:
             logger.warning("W&B logger is not available, please install to get proper logging")

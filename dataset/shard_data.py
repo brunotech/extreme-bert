@@ -40,7 +40,7 @@ TOTAL_UNIT = 100
 STAGE_NUM = 4
 STAGE_UNIT = TOTAL_UNIT/STAGE_NUM
 TMP_DIR = '../tmp/dataset'
-COMMUN_PATH = TMP_DIR+'/commun.log'
+COMMUN_PATH = f'{TMP_DIR}/commun.log'
 
 
 
@@ -108,8 +108,7 @@ def parse_args(cmdline_argv):
         """)),
     )
 
-    args = parser.parse_args(cmdline_argv)
-    return args
+    return parser.parse_args(cmdline_argv)
 
 def distribution():
     '''distributes data to certain number of partitions'''
@@ -119,20 +118,17 @@ def distribution():
     shards_dir = pathlib.Path(args.output_dir)
     shards_dir.mkdir(parents=True, exist_ok=True)
     input_files = []
-    
-    if not args.verbose:
-        total_tqdm = tqdm(total=TOTAL_UNIT)
-    else:
-        total_tqdm = None
 
+    total_tqdm = None if args.verbose else tqdm(total=TOTAL_UNIT)
     custom_counter = 0
     for dataset_tuple in args.dataset:
         dataset_name = dataset_tuple[0]
         # print(f'Processing {dataset_name}...')
         len_between = STAGE_UNIT/len(args.dataset)
-        
 
-        if dataset_name == 'custom':        # ===== Customized datasets
+
+        download_file_list = []
+        if dataset_name == 'custom':# ===== Customized datasets
             dataset_dir = pathlib.Path(dataset_tuple[1])
             if not dataset_dir.is_dir():
                 raise RuntimeError('The dataset directory does not exist')
@@ -140,7 +136,6 @@ def distribution():
             download_dir= pathlib.Path(args.output_dir, 'custom')
             download_dir.mkdir(parents=True, exist_ok=True)
 
-            download_file_list = []
             for i in range(n_machine):
                 filename = '%08d.%d.txt' % (custom_counter, i)
                 download_file = pathlib.Path(download_dir, filename)
@@ -161,10 +156,10 @@ def distribution():
                         else:
                             total_tqdm.set_description("Processing files in custom")
                             total_tqdm.update(interval)
-                            
+
                         with open(input_file, mode='r', encoding='utf-8') as fin:
                             prev_line = ''
-                            
+
                             for line in fin:
                                 if j%n_machine == i:
                                     if line == '\n' and prev_line != '\n':
@@ -172,12 +167,9 @@ def distribution():
                                         j += 1
                                     elif line != '\n':
                                         fout.write(line.replace('\n', ''))
-                                    prev_line = line
-                                else:
-                                    if line == '\n' and prev_line != '\n':
-                                        j += 1
-                                    prev_line = line
-
+                                elif line == '\n' and prev_line != '\n':
+                                    j += 1
+                                prev_line = line
                         if (prev_line != '\n') and (j%n_machine == i):
                             fout.write('\n\n')
                             j += 1
@@ -193,7 +185,6 @@ def distribution():
             dataset = load_dataset(dataset_name, dataset_subset, cache_dir=args.huggingface_cache_dir)
             download_dir = pathlib.Path(args.output_dir, f'{dataset_name}')
             download_dir.mkdir(parents=True, exist_ok=True)
-            download_file_list=[]
             for i in range(n_machine):
                 filename = f'{dataset_subset}.{i}.txt'
                 download_file = pathlib.Path(download_dir, filename)
@@ -213,17 +204,16 @@ def distribution():
                                 total_tqdm.update(interval)
                                 total_tqdm.set_description(f"Processing articles in {dataset_name}")
                             fout.write(article['text'].replace('\n\n', ' ').replace('\n', '') + '\n\n')
-                        
+
                 input_files += [download_file]
 
-    with open(TMP_DIR+'/file_list.txt', mode='w', encoding='utf-8') as ostream:
+    with open(f'{TMP_DIR}/file_list.txt', mode='w', encoding='utf-8') as ostream:
         for file in input_files:
             ostream.write(str(file)+'\n')
 
-    if not args.verbose:
-        if total_tqdm.n < STAGE_UNIT:
-            total_tqdm.update(STAGE_UNIT-total_tqdm.n)
-            total_tqdm.set_description("Finish processing articles")
+    if not args.verbose and total_tqdm.n < STAGE_UNIT:
+        total_tqdm.update(STAGE_UNIT-total_tqdm.n)
+        total_tqdm.set_description("Finish processing articles")
 
 
 if __name__ == '__main__':
@@ -233,7 +223,7 @@ if __name__ == '__main__':
 
     if not os.path.exists(TMP_DIR):
         os.makedirs(TMP_DIR)
-    
+
     if (args.master and os.path.exists(COMMUN_PATH)) or (args.n_machine == 1 and os.path.exists(COMMUN_PATH)):
         os.remove(COMMUN_PATH)
         print('Removed communication file')
@@ -255,8 +245,7 @@ if __name__ == '__main__':
         with open(COMMUN_PATH, mode='a', encoding='utf-8') as ostream:
             ostream.write('Completed Distribution\n')
 
-    # if distribution of data is completed, move to next step
-    elif ('Distributing Dataset\n' in text) and ('Completed Distribution\n' in text):
+    elif 'Completed Distribution\n' in text:
         for i in range(args.n_machine):
             if f'{i}\n' not in text:
                 with open(COMMUN_PATH, mode='a', encoding='utf-8') as ostream:
@@ -264,8 +253,7 @@ if __name__ == '__main__':
                 machine_id = i
                 break
 
-    # if distribution of data is not completed, other machines should wait until done
-    elif ('Distributing Dataset\n' in text) and ('Completed Distribution\n' not in text):
+    else:
         for i in range(args.n_machine):
             if f'{i}\n' not in text:
                 with open(COMMUN_PATH, mode='a', encoding='utf-8') as ostream:
@@ -284,7 +272,7 @@ if __name__ == '__main__':
     total_tqdm = tqdm(total = TOTAL_UNIT)
     total_tqdm.update(STAGE_UNIT)
 
-    with open(TMP_DIR+'/file_list.txt', mode='r', encoding='utf-8') as istream:
+    with open(f'{TMP_DIR}/file_list.txt', mode='r', encoding='utf-8') as istream:
         file_list = istream.readlines()
     file_list = [file.replace('\n','') for file in file_list]
     input_files = [file for file in file_list if int(file.split('.')[-2]) == machine_id]

@@ -80,9 +80,8 @@ def get_valid_dataloader(args, dataset: Dataset):
         train_sampler = RandomSampler(dataset)
     else:
         train_sampler = DistributedSampler(dataset)
-    return (
-        x
-        for x in DataLoader(
+    return iter(
+        DataLoader(
             dataset,
             batch_size=args.validation_micro_batch,
             sampler=train_sampler,
@@ -106,7 +105,7 @@ def pretrain_validation(args, model, validation_dataset, step):
     data_batches = get_valid_dataloader(args, dataset)
     eval_loss = 0
     num_eval_steps = 0
-    for _, batch in enumerate(tqdm(data_batches, smoothing=1)):
+    for batch in tqdm(data_batches, smoothing=1):
         batch = tuple(t.to(args.device) for t in batch)
         total_loss = model.forward(batch)
 
@@ -119,12 +118,9 @@ def pretrain_validation(args, model, validation_dataset, step):
     eval_loss = eval_loss / num_eval_steps
 
     logger.info(f"Validation Loss for epoch/step {index + 1}/{step} is: {eval_loss}")
-    if master_process(args):
-        if _has_wandb:
-            log_info = {
-                f"Validation/Loss": eval_loss,
-            }
-            wandb.log(log_info, step=step)
+    if master_process(args) and _has_wandb:
+        log_info = {"Validation/Loss": eval_loss}
+        wandb.log(log_info, step=step)
     del dataset
     del data_batches
     del batch
@@ -282,34 +278,26 @@ def should_run_validation(time_diff, args, epoch):
 
     # is in first stage of training
     if time_proportion < args.validation_begin_proportion:
-        should_do_validation = epoch % args.validation_epochs_begin == 0
+        return epoch % args.validation_epochs_begin == 0
 
-    # is in last stage of training
     elif time_proportion > 1 - args.validation_end_proportion:
-        should_do_validation = epoch % args.validation_epochs_end == 0
+        return epoch % args.validation_epochs_end == 0
 
-    # is in the middle stage of training
     else:
-        should_do_validation = epoch % args.validation_epochs == 0
-
-    return should_do_validation
+        return epoch % args.validation_epochs == 0
 
 
 def report_metrics(args, lr, loss, step, data_sample_count):
     current_lr = lr[0] if type(lr) == list else lr
-    if master_process(args):
-        if _has_wandb:
-            log_info = {
-                f"train/lr": current_lr,
-                f"train/train_loss": loss,
-            }
-            wandb.log(log_info, step=step)
-            samp_info = {
-                f"Train/Samples/train_loss": loss,
-                f"Train/Samples/lr": current_lr,
-                f"Train/total_samples": data_sample_count,
-            }
-            wandb.log(samp_info, commit=False)
+    if master_process(args) and _has_wandb:
+        log_info = {"train/lr": current_lr, "train/train_loss": loss}
+        wandb.log(log_info, step=step)
+        samp_info = {
+            "Train/Samples/train_loss": loss,
+            "Train/Samples/lr": current_lr,
+            "Train/total_samples": data_sample_count,
+        }
+        wandb.log(samp_info, commit=False)
 
     if (step + 1) % args.print_steps == 0 and master_process(args):
         logger.info(
@@ -366,13 +354,13 @@ def create_ds_config(args):
     }
 
     if args.prescale_gradients:
-        ds_config.update({"prescale_gradients": args.prescale_gradients})
+        ds_config["prescale_gradients"] = args.prescale_gradients
 
     if args.gradient_predivide_factor is not None:
-        ds_config.update({"gradient_predivide_factor": args.gradient_predivide_factor})
+        ds_config["gradient_predivide_factor"] = args.gradient_predivide_factor
 
-    if args.fp16:
-        if "ds" in args.fp16_backend:
+    if "ds" in args.fp16_backend:
+        if args.fp16:
             fp16_dict = {
                 "enabled": True,
                 "loss_scale": 0,
@@ -380,14 +368,15 @@ def create_ds_config(args):
                 "loss_scale_window": 1000,
                 "hysteresis": 2,
             }
-            ds_config.update({"fp16": fp16_dict})
-        elif "apex" in args.fp16_backend:
+            ds_config["fp16"] = fp16_dict
+    elif "apex" in args.fp16_backend:
+        if args.fp16:
             amp_dict = {
                 "enabled": True,
                 "opt_level": args.fp16_opt,
                 "keep_batchnorm_fp32": True,
             }
-            ds_config.update({"amp": amp_dict})
+            ds_config["amp"] = amp_dict
 
     return ds_config
 
@@ -411,17 +400,24 @@ def prepare_optimizer_parameters(args, model):
     param_optimizer = list(model.network.named_parameters())
     param_optimizer = [n for n in param_optimizer if "pooler" not in n[0]]
     no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-    optimizer_grouped_parameters = [
+    return [
         {
-            "params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+            "params": [
+                p
+                for n, p in param_optimizer
+                if all(nd not in n for nd in no_decay)
+            ],
             "weight_decay": args.optimizer_args.weight_decay,
         },
         {
-            "params": [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
+            "params": [
+                p
+                for n, p in param_optimizer
+                if any(nd in n for nd in no_decay)
+            ],
             "weight_decay": 0.0,
         },
     ]
-    return optimizer_grouped_parameters
 
 
 def prepare_model_and_optimizer(args):
@@ -623,16 +619,16 @@ def save_training_checkpoint(
         "exp_time_marker": get_now() - exp_start_marker,  ## save total training time in seconds
     }
     if _has_wandb and dist.get_rank() == 0:
-        checkpoint_state_dict.update({"run_id": wandb.run.id})
+        checkpoint_state_dict["run_id"] = wandb.run.id
     # Add extra kwargs too
-    checkpoint_state_dict.update(kwargs)
+    checkpoint_state_dict |= kwargs
 
-    status_msg = "checkpointing training model: PATH={}, ckpt_id={}".format(model_path, ckpt_id)
-    # save_checkpoint is DS method
-    success = model.network.save_checkpoint(
-        model_path, tag=ckpt_id, client_state=checkpoint_state_dict
+    status_msg = (
+        f"checkpointing training model: PATH={model_path}, ckpt_id={ckpt_id}"
     )
-    if success:
+    if success := model.network.save_checkpoint(
+        model_path, tag=ckpt_id, client_state=checkpoint_state_dict
+    ):
         logging.info(f"Success {status_msg}")
     else:
         logging.warning(f"Failure {status_msg}")

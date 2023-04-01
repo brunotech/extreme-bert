@@ -95,9 +95,8 @@ class CustomizedCurve:
             "linear_decay": get_linear_decay_curve,
         }
 
-        if not curve_type in curve_map:
-            raise ValueError(
-                'unsupported customized learning rate curve "%s"' % curve_type)
+        if curve_type not in curve_map:
+            raise ValueError(f'unsupported customized learning rate curve "{curve_type}"')
 
         self.init_lr = args.lr
         self.lr_func = curve_map[curve_type](conf)

@@ -116,9 +116,15 @@ class pretraining_dataset(Dataset):
         return len(self.inputs[0])
 
     def __getitem__(self, index):
-        [input_ids, input_mask, segment_ids, masked_lm_positions, masked_lm_ids] = [
+        [
+            input_ids,
+            input_mask,
+            segment_ids,
+            masked_lm_positions,
+            masked_lm_ids,
+        ] = [
             torch.from_numpy(input[index].astype(np.int64))
-            for _, input in enumerate(self.inputs[:5])
+            for input in self.inputs[:5]
         ]
         masked_lm_labels = torch.ones(input_ids.shape, dtype=torch.long) * -1
         index = self.max_predictions_per_seq
@@ -136,18 +142,17 @@ class pretraining_dataset(Dataset):
                 segment_ids,
                 masked_lm_labels,
             ]
-        else:
-            next_sentence_labels = torch.from_numpy(
-                np.asarray(self.inputs[-1][index].astype(np.int64))
-            )
-            return [
-                map_to_torch([BatchType.PRETRAIN_BATCH]),
-                input_ids,
-                input_mask,
-                segment_ids,
-                next_sentence_labels,
-                masked_lm_labels,
-            ]
+        next_sentence_labels = torch.from_numpy(
+            np.asarray(self.inputs[-1][index].astype(np.int64))
+        )
+        return [
+            map_to_torch([BatchType.PRETRAIN_BATCH]),
+            input_ids,
+            input_mask,
+            segment_ids,
+            next_sentence_labels,
+            masked_lm_labels,
+        ]
 
 
 class ValidationDataset:
@@ -167,7 +172,7 @@ class ValidationDataset:
             if os.path.isfile(os.path.join(dataset_path, f)) and "test" in f
         ]
         assert (
-            len(self.dataset_files) > 0
+            self.dataset_files
         ), "No validation files found, make sure *valid_*.hdf5 file exist in dataset path"
         self.dataset_files.sort()
         self.num_files = len(self.dataset_files)
@@ -196,11 +201,7 @@ class PreTrainingDataset(BertDatasetProviderInterface):
 
         self.gradient_accumulation_steps = args.gradient_accumulation_steps
         self.train_micro_batch_size_per_gpu = args.train_micro_batch_size_per_gpu
-        if "logger" not in args.__dict__:
-            self.logger = logger
-        else:
-            self.logger = args.logger
-
+        self.logger = logger if "logger" not in args.__dict__ else args.logger
         if args.local_rank == -1:
             self.global_rank = 0
             self.world_size = 1
@@ -215,7 +216,9 @@ class PreTrainingDataset(BertDatasetProviderInterface):
             for f in os.listdir(dataset_path)
             if os.path.isfile(os.path.join(dataset_path, f)) and data_prefix in f
         ]
-        assert len(self.dataset_files) > 0, "No train/test*.hdf5 files found in given dataset path"
+        assert (
+            self.dataset_files
+        ), "No train/test*.hdf5 files found in given dataset path"
         if data_prefix == "train":
             self.dataset_files.sort()
         random.shuffle(self.dataset_files)

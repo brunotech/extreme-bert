@@ -59,8 +59,7 @@ def master_process(args):
 def get_time_diff_hours(now, start_marker):
     """return difference between 2 time markers in hours"""
     time_diff = now - start_marker
-    time_diff_hours = time_diff / 3600
-    return time_diff_hours
+    return time_diff / 3600
 
 
 def is_time_to_exit(now, args, epoch_steps=0, global_steps=0):
@@ -77,11 +76,13 @@ def is_time_to_finetune(now, start_marker, time_markers, total_time):
     if time_markers is None:
         return False
     time_diff_hours = get_time_diff_hours(now, start_marker)
-    if len(time_markers) > 0 and time_diff_hours / total_time > time_markers[0]:
-        time_markers.pop(0)
-        return True
-    else:
+    if (
+        len(time_markers) <= 0
+        or time_diff_hours / total_time <= time_markers[0]
+    ):
         return False
+    time_markers.pop(0)
+    return True
 
 
 def get_json_file(path):
@@ -92,17 +93,14 @@ def get_json_file(path):
 
 def to_sanitized_dict(args) -> Dict[str, Any]:
     """Sanitized serialization hparams"""
-    if type(args) in [dict]:
-        d = args
-    else:
-        d = vars(args)
+    d = args if type(args) in [dict] else vars(args)
     valid_types = [bool, int, float, str, dict]
     items = {}
     for k, v in d.items():
         if type(v) in valid_types:
             if type(v) == dict:
                 v = to_sanitized_dict(v)
-            items.update({k: v})
+            items[k] = v
         else:
             str(v)
     return items

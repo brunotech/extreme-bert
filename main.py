@@ -71,9 +71,7 @@ def get_default_config():
 
 def get_md5sum_of_file(path):
     stdout_content = subprocess.check_output(['md5sum', f'{path}'])
-    # e.g. "53f31ebaf51cfa144ada1affe63807c9  example.txt"
-    md5sum = stdout_content.decode(sys.stdout.encoding).split(' ')[0].strip()
-    return md5sum
+    return stdout_content.decode(sys.stdout.encoding).split(' ')[0].strip()
 
 
 def get_md5sum_of_str(string):
@@ -82,8 +80,7 @@ def get_md5sum_of_str(string):
     stdout_content = subprocess.check_output('md5sum', stdin=process.stdout)
     process.wait()
 
-    md5sum = stdout_content.decode(sys.stdout.encoding).split(' ')[0].strip()
-    return md5sum
+    return stdout_content.decode(sys.stdout.encoding).split(' ')[0].strip()
 
 
 def get_dataset_list(config):
@@ -95,10 +92,10 @@ def get_dataset_list(config):
                 data_path = os.path.join(dataset_dir, data_file)
                 customized_data_list.append(f'{data_path}')
 
-    huggingface_data_list = []
-    for dataset_name, subset_name in config.DATASET.HUGGINGFACE_DATASETS:
-        huggingface_data_list.append(f'{dataset_name}.{subset_name}')
-
+    huggingface_data_list = [
+        f'{dataset_name}.{subset_name}'
+        for dataset_name, subset_name in config.DATASET.HUGGINGFACE_DATASETS
+    ]
     return customized_data_list, huggingface_data_list
 
 
@@ -128,8 +125,6 @@ def is_same_file_list(list_a, list_b):
 
 def set_autogen_dataset_id(config):
     counter = -1    # Adds counter until there is no conflict IDs
-                    # Normally the hash conflict probability is extremely low
-
     while True:
         counter += 1
 
@@ -144,9 +139,12 @@ def set_autogen_dataset_id(config):
             hash_id = get_md5sum_of_file(data_path)
             hash_list.append(hash_id)
 
-        hash_list.append(get_md5sum_of_str(huggingface_data_str))
-        hash_list.append(get_md5sum_of_str(str(counter)))   # Avoid conflicts
-
+        hash_list.extend(
+            (
+                get_md5sum_of_str(huggingface_data_str),
+                get_md5sum_of_str(str(counter)),
+            )
+        )
         hash_str = ''.join(hash_list)
         final_hash = get_md5sum_of_str(hash_str)        # Two-layer md5sum
 
@@ -217,7 +215,7 @@ def get_date():
 
 
 def logging(message):
-    print(f'{get_date()}: ' + message, flush=True)
+    print(f'{get_date()}: {message}', flush=True)
 
 
 def get_script_dir():
@@ -225,15 +223,14 @@ def get_script_dir():
 
 
 def run_bash(command):
-    process = subprocess.run(
+    return subprocess.run(
         command,
         shell=True,
         executable='/bin/bash',
         stdout=sys.stdout,
         stderr=sys.stderr,
-        check=True
+        check=True,
     )
-    return process
 
 
 def prepare_dataset(config, args=None):
@@ -254,14 +251,13 @@ def prepare_dataset(config, args=None):
 
     # If the dataset file is prepared, skip
     skip_mark_file = pathlib.Path(tmp_dir, f'{config.DATASET.ID}.mark')
-    if skip_mark_file.is_file():
-        if args is None or not args.clear_cache:
-            logging(
-                f'Dataset for this ID "{config.DATASET.ID}"'
-                ' has already been prepared, skip preprocessing...'
-            )
-            logging('########## prepare dateset end')
-            return
+    if skip_mark_file.is_file() and (args is None or not args.clear_cache):
+        logging(
+            f'Dataset for this ID "{config.DATASET.ID}"'
+            ' has already been prepared, skip preprocessing...'
+        )
+        logging('########## prepare dateset end')
+        return
 
     # Clear the temporary directory and output directory
     shutil.rmtree(output_dir)
@@ -278,11 +274,14 @@ def prepare_dataset(config, args=None):
         f'  --output_dir {tmp_dir}',
         f'  --max_memory {config.SYSTEM.MAX_MEMORY_IN_GB}',
     ]
-    for dataset_name, subset_name in config.DATASET.HUGGINGFACE_DATASETS:
-        shard_data_command.append(f'  --dataset {dataset_name} {subset_name}')
-    for dataset_dir in config.DATASET.CUSTOMIZED_DATASETS:
-        shard_data_command.append(f'  --dataset custom {dataset_dir}')
-
+    shard_data_command.extend(
+        f'  --dataset {dataset_name} {subset_name}'
+        for dataset_name, subset_name in config.DATASET.HUGGINGFACE_DATASETS
+    )
+    shard_data_command.extend(
+        f'  --dataset custom {dataset_dir}'
+        for dataset_dir in config.DATASET.CUSTOMIZED_DATASETS
+    )
     shard_data_command.extend([
         f'  > {log_dir}/shard_data.log',
         f'  2> {log_dir}/shard_data.err'
@@ -390,8 +389,9 @@ def finetune(config, args=None):
         for gpu_list in config.FINETUNE.MULTIPROCESS_GPU_LIST:
             num_gpu_this_proc = len(gpu_list)
 
-            command = 'export CUDA_VISIBLE_DEVICES='
-            command += ','.join([str(gpu) for gpu in gpu_list])
+            command = 'export CUDA_VISIBLE_DEVICES=' + ','.join(
+                [str(gpu) for gpu in gpu_list]
+            )
             command += ('; ./finetune_search.sh'
                         f' {dataset_name} {num_gpu_this_proc} {pretrain_id}')
 

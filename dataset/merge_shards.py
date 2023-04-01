@@ -40,12 +40,13 @@ def write_shard(lines, f_idx, out_dir_path, name=None):
 
 
 def list_files_in_dir(dir, data_prefix=".txt", file_name_grep=""):
-    dataset_files = [
+    return [
         os.path.join(dir, f)
         for f in os.listdir(dir)
-        if os.path.isfile(os.path.join(dir, f)) and data_prefix in f and file_name_grep in f
+        if os.path.isfile(os.path.join(dir, f))
+        and data_prefix in f
+        and file_name_grep in f
     ]
-    return dataset_files
 
 
 if __name__ == "__main__":

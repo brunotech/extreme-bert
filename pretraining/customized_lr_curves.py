@@ -89,11 +89,11 @@ def get_activation_curve(conf, return_by_t=True):
         logging.info('lr curve: activation option = True')
         logging.info('lr curve: activation point = %d', activation_point)
 
-    if return_by_t:
-        activation_curve = lambda t: max(0, t - activation_point)
-    else:
-        activation_curve = lambda t: t >= activation_point
-    return activation_curve
+    return (
+        (lambda t: max(0, t - activation_point))
+        if return_by_t
+        else (lambda t: t >= activation_point)
+    )
 
 
 def get_restart_curve(conf):
@@ -409,7 +409,7 @@ def get_piecewise_inverse_time_curve(conf):
     if len(start_point_list) != len(b_list):
         raise ParseError(
             'lr curve: number of starting points differs from b')
-    if len(start_point_list) == 0:
+    if not start_point_list:
         raise ParseError(
             'lr curve: starting points should have at least 1 point')
     if start_point_list[0] != 0:

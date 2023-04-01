@@ -67,7 +67,7 @@ class BasePretrainModel(object):
 
         if not config:
             if model_name_or_path is None:
-                logger.info(f"Loading config from args")
+                logger.info("Loading config from args")
                 config = config_cls(**args.model_config)
                 config = self._init_vocab_size(config)
             else:
@@ -94,7 +94,7 @@ class BasePretrainModel(object):
     def save_weights(self, checkpoint_id, output_dir, is_deepspeed=False) -> str:
         """Save model weights, config and tokenizer configurations + extra arguments"""
         checkpoint_dir = os.path.join(output_dir, checkpoint_id)
-        logger.info("checkpointing: PATH={}".format(checkpoint_dir))
+        logger.info(f"checkpointing: PATH={checkpoint_dir}")
         os.makedirs(checkpoint_dir, exist_ok=True)
 
         if is_deepspeed:
@@ -136,14 +136,21 @@ class BasePretrainModel(object):
         param_optimizer = list(self.network.named_parameters())
         param_optimizer = [n for n in param_optimizer if "pooler" not in n[0]]
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-        optimizer_grouped_parameters = [
+        return [
             {
-                "params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+                "params": [
+                    p
+                    for n, p in param_optimizer
+                    if all(nd not in n for nd in no_decay)
+                ],
                 "weight_decay": weight_decay,
             },
             {
-                "params": [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
+                "params": [
+                    p
+                    for n, p in param_optimizer
+                    if any(nd in n for nd in no_decay)
+                ],
                 "weight_decay": 0.0,
             },
         ]
-        return optimizer_grouped_parameters
